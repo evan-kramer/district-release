@@ -1,0 +1,134 @@
+```{r setup, include = F}
+options(java.parameters = "-Xmx16G")
+library(tidyverse)
+library(lubridate)
+library(haven)
+library(RJDBC)
+library(knitr)
+library(rmarkdown)
+setwd("N:/")
+
+# Just for sample runs
+d = 10
+assessment_summary = read_csv("C:/Users/CA19130/Downloads/assessment_summary.csv")
+tvaas_summary = read_csv("C:/Users/CA19130/Downloads/tvaas_summary.csv")
+# absenteeism_summary = read_csv("C:/Users/CA19130/Downloads/absenteeism_summary.csv")
+```
+---
+title: "District Summary Report"
+author: "Tennessee Department of Education"
+date: `r str_c(month(today(), label = T, abbr = F), " ", day(today()), ", ", year(today()))`
+output: html_document `r #change to pdf_document?`
+params:
+    d: `r d`
+---
+
+```{r data, include = F}
+# Data 
+assessment = filter(assessment_summary, system == d)
+tvaas = filter(tvaas_summary, system == d)
+# absenteeism = filter(absenteeism_summary, system == d)
+```
+
+### Document Overview
+This document provides an overview of assessment, TVAAS, and absenteeism data for `r unique(assessment$system_name)`. Please direct any questions or concerns to [our Accountability team](mailto:TNED.Accountability@tn.gov).
+
+### Assessment Results
+Below is a high-level summary of `r unique(assessment$system_name)`'s assessment results.
+
+```{r assessment, include = F}
+# How did your proficiency compare to last year? 
+improve = case_when(
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) - unique(assessment$pct_on_mastered_district[assessment$year == min(assessment$year)]) > 0.5 ~ "improved",
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) - unique(assessment$pct_on_mastered_district[assessment$year == min(assessment$year)]) < -0.5 ~ "declined",
+  T ~ "stayed about the same"
+)
+# Comparison to CORE region and the state? 
+region = case_when(
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) > 0.5 + unique(assessment$pct_on_mastered_region[assessment$year == max(assessment$year)]) ~ "better than",
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) < unique(assessment$pct_on_mastered_region[assessment$year == max(assessment$year)]) - 0.5 ~ "worse than",
+  T ~ "about the same as"
+)
+state = case_when(
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) > 0.5 + unique(assessment$pct_on_mastered_state[assessment$year == max(assessment$year)]) ~ "better than",
+  unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)]) < unique(assessment$pct_on_mastered_state[assessment$year == max(assessment$year)]) - 0.5 ~ "worse than",
+  T ~ "about the same as"
+)
+# Which of your schools has the highest proficiency?
+best = filter(assessment, year == max(year)) %>% 
+  filter(pct_on_mastered == max(pct_on_mastered))
+# Lowest?
+worst = filter(assessment, year == max(year)) %>% 
+  filter(pct_on_mastered == min(pct_on_mastered))
+# Which of your schools are improving most? 
+fastest_improving = select(assessment, year:pct_on_mastered) %>% 
+  spread(year, pct_on_mastered) 
+names(fastest_improving) = c("region", "system", "system_name", "school", "school_name", "lag2", "lag1", "current")
+fastest_improving = mutate(fastest_improving, diff = current - lag2) %>% 
+  filter(diff == max(diff, na.rm = T))
+# Least?
+slowest_improving = select(assessment, year:pct_on_mastered) %>% 
+  spread(year, pct_on_mastered) 
+names(slowest_improving) = c("region", "system", "system_name", "school", "school_name", "lag2", "lag1", "current")
+slowest_improving = mutate(slowest_improving, diff = current - lag2) %>% 
+  filter(diff == min(diff, na.rm = T))
+```
+
+- Proficiency rates in `r unique(assessment$system_name)` have __`r improve`__ over the past two years (`r unique(assessment$pct_on_mastered_district[assessment$year == min(assessment$year)])`% to `r unique(assessment$pct_on_mastered_district[assessment$year == max(assessment$year)])`%).
+- `r unique(assessment$system_name)` is performing __`r region`__ the rest of the `r unique(assessment$region)` region and __`r state`__ the state.
+- `r unique(best$school_name)` had the __highest proficiency__ of all schools in the district last year (`r unique(best$pct_on_mastered)`%). 
+- `r unique(worst$school_name)` had the __lowest proficiency__ of all schools in the district last year (`r unique(worst$pct_on_mastered)`%).
+- `r unique(fastest_improving$school_name)`'s proficiency __has `r ifelse(unique(fastest_improving$diff) > 0, "improved most", "declined least")`__ over the past two years.
+- `r unique(slowest_improving$school_name)`'s proficiency __has `r ifelse(unique(slowest_improving$diff) > 0, "improved least", "declined most")`__ over the past two years.
+
+### TVAAS 
+Below is a high-level summary of `r unique(assessment$system_name)`'s TVAAS performance. You can learn more about TVAAS [here](https://www.tn.gov/education/data/tvaas.html), and you can view your district's results in more detail on the [TVAAS secure site](https://tvaas.sas.com/).
+
+```{r tvaas, include = F}
+# District composite
+# What proportion of schools are a TVAAS level 4/5? 
+# What proportion have been a level 4/5 for the past two years? 
+# How does that compare to the region and the state?
+region = case_when(
+  unique(tvaas$pct_high_tvaas_district) > 0.5 + unique(tvaas$pct_high_tvaas_region) ~ "higher than",
+  unique(tvaas$pct_high_tvaas_district) < unique(tvaas$pct_high_tvaas_region) - 0.5 ~ "lower than", 
+  T ~ "about the same as"
+)
+state = case_when(
+  unique(tvaas$pct_high_tvaas_district) > 0.5 + unique(tvaas$pct_high_tvaas_state) ~ "higher than",
+  unique(tvaas$pct_high_tvaas_district) < unique(tvaas$pct_high_tvaas_state) - 0.5 ~ "lower than", 
+  T ~ "about the same as"
+)
+region_2yr = case_when(
+  unique(tvaas$pct_high_tvaas_2yr_district) > 0.5 + unique(tvaas$pct_high_tvaas_2yr_region) ~ "higher than",
+  unique(tvaas$pct_high_tvaas_2yr_district) < unique(tvaas$pct_high_tvaas_2yr_region) - 0.5 ~ "lower than", 
+  T ~ "about the same as"
+)
+state_2yr = case_when(
+  unique(tvaas$pct_high_tvaas_2yr_district) > 0.5 + unique(tvaas$pct_high_tvaas_2yr_state) ~ "higher than",
+  unique(tvaas$pct_high_tvaas_2yr_district) < unique(tvaas$pct_high_tvaas_2yr_state) - 0.5 ~ "lower than", 
+  T ~ "about the same as"
+)
+```
+- Last year `r unique(tvaas$system_name)` earned a __TVAAS level `r unique(tvaas$district_tvaas)`__, compared to a level `r unique(tvaas$district_tvaas_lag)` the year before. 
+- `r unique(tvaas$pct_high_tvaas_district)`% of schools in `r unique(tvaas$system_name)` earned a TVAAS level 4 or 5 last year, which was __`r region`__ the rest of the `r unique(tvaas$region)` region and __`r state`__ the rest of the state.
+- `r unique(tvaas$pct_high_tvaas_2yr_district)`% of schools in your district earned a TVAAS level 4 or 5 in **both** of the last two years, which was __`r region_2yr`__ the rest of the region and __`r state_2yr`__ the state.
+
+### Absenteeism
+
+```{r absenteeism, include = F}
+
+```
+
+### Achievement Gaps
+
+```{r achievement_gaps, include = F}
+
+```
+
+### Plots
+
+``` {r plots, echo = F, warning = F}
+
+```
+
